@@ -211,12 +211,24 @@ internal fun CampusMapCanvas(
     }
     val navigates = isGuidanceVisible(state)
     val destination = state.destination?.takeUnless(CampusPlace::isEntrance)
-    val previewEnd = remember(campus, destination, projection) {
-        destination?.let(campus::mapDestination)?.point?.let(projection::project)
+    val previewPlace = remember(campus, destination) {
+        destination?.let(campus::mapDestination)
     }
-    val destinationPoint = selectedRoute?.points?.lastOrNull() ?: previewEnd
+    val endPoint = selectedRoute?.route?.points?.lastOrNull() ?: previewPlace?.point
+    val destinationPoint = selectedRoute?.points?.lastOrNull() ?: previewPlace?.point?.let(projection::project)
+    val sportsEntrance = if (destination?.kind == "sport") {
+        if (selectedRoute == null) previewPlace?.takeIf(CampusPlace::isEntrance)
+        else selectedRoute.route.target?.entrance
+    } else null
+    val destinationLabel = when {
+        sportsEntrance == null -> destination?.name
+        sportsEntrance.point == endPoint -> sportsEntrance.name
+        selectedRoute?.route?.mode == TravelMode.BIKE -> "骑行终点"
+        else -> "路线终点"
+    }
     val manualStart = state.manualStart
     val selectedMarker = destination?.let { it.parentId ?: it.id }
+    val hiddenPlaceMarker = selectedMarker.takeUnless { sportsEntrance != null && destination?.point != endPoint }
     val textMeasure = rememberTextMeasurer(cacheSize = 60)
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
     var camera by remember(projection) { mutableStateOf(MapCamera(center)) }
@@ -354,7 +366,7 @@ internal fun CampusMapCanvas(
             val occupied = mutableListOf<Rect>()
             val visiblePlaces = if (navigates) emptyList() else places
             for (item in visiblePlaces) {
-                if (item.place.id == selectedMarker) continue
+                if (item.place.id == hiddenPlaceMarker) continue
                 val point = view.screen(item.point)
                 if (!bounds.contains(point)) continue
                 val radius = if (camera.zoom >= 2.5f) 4.2.dp.toPx() else 3.2.dp.toPx()
@@ -388,11 +400,11 @@ internal fun CampusMapCanvas(
                 drawRoundRect(palette.label, rect.topLeft, rect.size, CornerRadius(5.dp.toPx()))
                 drawText(layout, topLeft = Offset(x, y))
             }
-            if (destination != null) {
+            if (destinationLabel != null) {
                 destinationPoint?.let(view::screen)?.takeIf(bounds::contains)?.let { end ->
                     drawCircle(palette.label, 10.dp.toPx(), end)
                     drawCircle(palette.destination, 6.5.dp.toPx(), end)
-                    drawPlaceLabel(destination.name, end, emphasized = true)
+                    drawPlaceLabel(destinationLabel, end, emphasized = true)
                 }
             }
             selectedRoute?.let { line ->
@@ -414,7 +426,7 @@ internal fun CampusMapCanvas(
             }
             if (!navigates) {
                 visiblePlaces.asSequence()
-                    .filter { it.place.id != selectedMarker && (it.place.id in majorMapPlaces || camera.zoom >= 4f) }
+                    .filter { it.place.id != hiddenPlaceMarker && (it.place.id in majorMapPlaces || camera.zoom >= 4f) }
                     .map { item -> item.place.name to view.screen(item.point) }
                     .filter { (_, point) -> bounds.contains(point) }
                     .take(if (camera.zoom >= 4f) 44 else 14)

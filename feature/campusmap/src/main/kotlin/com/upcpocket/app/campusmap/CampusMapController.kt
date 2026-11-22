@@ -260,12 +260,13 @@ internal class CampusMapController(
             usable.point.distanceTo(route.points.last()) < 18
         arrivalFixes = if (nearEnd) arrivalFixes + 1 else 0
         if (arrivalFixes >= 2) {
+            val reachedEntrance = route.sportsEntrance(current.destination)?.takeIf { it.point == route.points.last() }
             resetNavigation()
             mutableState.value = mutableState.value.copy(
                 status = NavigationStatus.ARRIVED,
                 guidance = null,
                 routeProgressMeters = route.meters,
-                notice = route.arrivalNotice,
+                notice = reachedEntrance?.let { "已到达${it.name}" } ?: route.arrivalNotice,
             )
         } else {
             mutableState.value = mutableState.value.copy(
@@ -375,11 +376,13 @@ internal class CampusMapController(
                 return@launch
             }
             val usesEntrance = best.target?.entrance != null
-            val destinationName = latest.destination?.name ?: "目的地"
+            val sportsEntrance = best.sportsEntrance(latest.destination)
+            val destinationName = sportsEntrance?.name ?: latest.destination?.name ?: "目的地"
             val destinationNote = when {
                 best.walkFromIndex != null && usesEntrance -> "骑行到下车点，再步行前往$destinationName"
                 best.walkFromIndex != null -> "骑行到下车点，再沿步行道路前往$destinationName 附近"
                 mode == TravelMode.BIKE && best.mode == TravelMode.WALK -> "起点已靠近骑行终点，请沿图中步行路线前往"
+                best.mode == TravelMode.BIKE && sportsEntrance?.point == best.points.last() -> "骑行前往$destinationName"
                 usesEntrance && best.mode == TravelMode.BIKE ->
                     "骑行至附近道路，再步行前往$destinationName"
                 usesEntrance -> "步行前往$destinationName"
@@ -454,6 +457,9 @@ internal class CampusMapController(
         RouteFailure.TOO_CLOSE -> "起终点在同一处道路附近"
         RouteFailure.DISCONNECTED -> "当前方式未找到连通的校内路线，可切换步行或骑行"
     }
+
+    private fun CampusRoute.sportsEntrance(destination: CampusPlace?): CampusPlace? =
+        target?.entrance?.takeIf { destination?.kind == "sport" }
 
     private fun CampusMapState.withoutRoute() = copy(
         status = NavigationStatus.IDLE, routes = emptyList(), selectedRouteId = null, notice = null, guidance = null,
